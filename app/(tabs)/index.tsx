@@ -96,9 +96,13 @@ export default function DashboardScreen() {
         step++;
         
         setBpmHistory(h => [...h.slice(1), value]);
+        
+        // --- SAVE TO TIMESCALEDB ---
+        sendVitalsToDb(value);
+
         return value;
       });
-    }, 3000); // 3 seconds per step so you can see it clearly
+    }, 3000); 
 
     return () => clearInterval(interval);
   }, []);
@@ -141,6 +145,26 @@ export default function DashboardScreen() {
         break;
       default:
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+  };
+
+  // --- DATABASE SYNC ---
+  const sendVitalsToDb = async (currentBpm: number) => {
+    try {
+      // Updated to your local IP so physical devices can connect
+      const response = await fetch('http://172.25.3.103:3000/api/vitals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'Vibillow-ESP32-01',
+          bpm: currentBpm,
+          status: currentBpm < 40 || currentBpm > 130 ? 'Emergency' : 'Healthy',
+        }),
+      });
+      const data = await response.json();
+      console.log('Saved to TimescaleDB:', data.success);
+    } catch (err: any) {
+      console.warn('DB Sync Error (Is server.js running?):', err.message);
     }
   };
 
