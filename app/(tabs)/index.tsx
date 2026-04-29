@@ -15,6 +15,7 @@ import Slider from '@react-native-community/slider';
 import * as Haptics from 'expo-haptics';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
+import { Audio } from 'expo-av';
 
 const { width } = Dimensions.get('window');
 
@@ -39,7 +40,9 @@ export default function DashboardScreen() {
   const [isAlertOn, setIsAlertOn] = useState(false);
   const [bluetoothDevice, setBluetoothDevice] = useState<string | null>(null);
   const [emergencyActive, setEmergencyActive] = useState(false);
+  const [emergencyBpm, setEmergencyBpm] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(3);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [bpmHistory, setBpmHistory] = useState([65, 68, 72, 70, 75, 72, 74]);
   
   // --- ANIMATION ---
@@ -88,7 +91,7 @@ export default function DashboardScreen() {
     
     // Mocking a specific sequence for testing: 60 -> 70 -> 35 (Emergency)
     let step = 0;
-    const testSequence = [60, 70, 75, 80 , 81, 82, 35, 72, 68]; // 35 will trigger the call
+    const testSequence = [60, 70, 75, 80 , 81, 82, 35, 72, 68]; // 35 will trigger the call and alarm
     
     const interval = setInterval(() => {
       setBpm(prev => {
@@ -111,6 +114,7 @@ export default function DashboardScreen() {
   useEffect(() => {
     if ((bpm < 40 || bpm > 130) && !emergencyActive) {
       setEmergencyActive(true);
+      setEmergencyBpm(bpm);
       setCountdown(3);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
@@ -124,12 +128,50 @@ export default function DashboardScreen() {
         setCountdown(prev => prev - 1);
       }, 1000);
     } else if (emergencyActive && countdown === 0) {
-      Linking.openURL('tel:1234567890');
-      // Reset after calling to prevent infinite loop
-      setEmergencyActive(false);
+      if (countdown === 0) {
+        console.log("Countdown finished! Playing alarm...");
+        playSound();
+      }
     }
     return () => clearTimeout(timer);
   }, [emergencyActive, countdown]);
+
+  const playSound = async () => {
+    try {
+      console.log("Loading sound...");
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        require('@/assets/sounds/android_ring.mp3'),
+        { shouldPlay: true, volume: 1.0 }
+      );
+      setSound(newSound);
+      console.log("Sound playing!");
+    } catch (error) {
+      console.error("Audio Error:", error);
+    }
+  };
+
+  const stopAlert = async () => {
+    if (sound) {
+      try {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+        setSound(null);
+      } catch (error) {
+        console.error("Error stopping sound:", error);
+      }
+    }
+    setEmergencyActive(false);
+    setEmergencyBpm(null);
+    setCountdown(3); // Reset countdown for next time
+  };
+
+  useEffect(() => {
+    return sound
+      ? () => {
+          sound.unloadAsync();
+        }
+      : undefined;
+  }, [sound]);
 
   // --- HAPTIC HANDLERS ---
   const triggerHaptic = (type: string) => {
@@ -356,17 +398,33 @@ export default function DashboardScreen() {
         <View style={styles.emergencyOverlay}>
           <MaterialCommunityIcons name="alert-octagon" size={80} color="#FF3B30" />
           <Text style={styles.emergencyTitle}>CRITICAL BPM DETECTED</Text>
-          <Text style={styles.emergencyValue}>{bpm} BPM</Text>
+          <Text style={styles.emergencyValue}>{emergencyBpm} BPM</Text>
           <View style={styles.countdownCircle}>
             <Text style={styles.countdownNumber}>{countdown}</Text>
           </View>
-          <Text style={styles.emergencySub}>Calling Ambulance Automatically</Text>
-          <TouchableOpacity 
-            style={styles.cancelButton}
-            onPress={() => setEmergencyActive(false)}
-          >
-            <Text style={styles.cancelButtonText}>CANCEL EMERGENCY</Text>
-          </TouchableOpacity>
+          <Text style={styles.emergencySub}>
+            {countdown === 0 ? 'Emergency Services Notified' : ''}
+          </Text>
+          
+          <View style={styles.emergencyActionRow}>
+            {countdown === 0 && (
+              <TouchableOpacity 
+                style={[styles.cancelButton, { backgroundColor: '#FF3B30', borderColor: '#FF3B30', marginRight: 10 }]}
+                onPress={stopAlert}
+              >
+                <Text style={[styles.cancelButtonText, { color: '#FFF' }]}>STOP ALERT</Text>
+              </TouchableOpacity>
+            )}
+            
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={stopAlert}
+            >
+              <Text style={styles.cancelButtonText}>
+                {countdown === 0 ? 'DISMISS' : 'CANCEL EMERGENCY'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -625,6 +683,11 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontWeight: '800',
     fontSize: 14,
+  },
+  emergencyActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countdownCircle: {
     width: 100,
