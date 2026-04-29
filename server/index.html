@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pillow Health Dashboard</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #111827; color: #f9fafb; }
+        .page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .card { width: 100%; max-width: 520px; background: #1f2937; border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; box-shadow: 0 30px 80px rgba(15,23,42,0.45); padding: 32px; }
+        h1 { margin: 0 0 16px; font-size: 28px; letter-spacing: -0.03em; }
+        .status { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 28px; color: #9ca3af; }
+        .dot { width: 12px; height: 12px; border-radius: 999px; background: #f59e0b; box-shadow: 0 0 0 rgba(245,158,11,0.55); animation: pulse 1.5s infinite ease-in-out; }
+        .dot.connected { background: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.45); }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.65; transform: scale(1.15); } }
+        .stats { display: grid; gap: 18px; margin-bottom: 24px; }
+        .tile { padding: 22px 20px; border-radius: 18px; background: #111827; border: 1px solid rgba(255,255,255,0.08); }
+        .tile h2 { margin: 0 0 6px; font-size: 14px; color: #9ca3af; letter-spacing: 0.08em; text-transform: uppercase; }
+        .value { margin: 0; font-size: 54px; line-height: 1; font-weight: 700; }
+        .value.sub { font-size: 18px; color: #d1d5db; margin-top: 8px; }
+        .log { max-height: 220px; overflow-y: auto; margin-top: 16px; padding-right: 8px; }
+        .log-item { margin-bottom: 12px; padding: 14px 16px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+        .log-item:last-child { margin-bottom: 0; }
+        .log-topic { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+        .log-payload { font-size: 16px; color: #f8fafc; word-break: break-word; }
+        .log-time { font-size: 12px; color: #6b7280; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="card">
+            <h1>Smart Pillow Live Monitor</h1>
+            <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting to broker...</span></div>
+
+            <div class="stats">
+                <div class="tile">
+                    <h2>Current BPM</h2>
+                    <p class="value" id="bpmValue">0</p>
+                    <p class="value sub" id="bpmLabel">No data yet</p>
+                </div>
+                <div class="tile">
+                    <h2>Pillow State</h2>
+                    <p class="value" id="headValue">OFF</p>
+                    <p class="value sub">pillow/head</p>
+                </div>
+            </div>
+
+            <div class="tile log">
+                <div class="log-item">
+                    <div class="log-topic">Recent MQTT events</div>
+                    <div id="logEntries"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const bpmValue = document.getElementById('bpmValue');
+        const bpmLabel = document.getElementById('bpmLabel');
+        const headValue = document.getElementById('headValue');
+        const logEntries = document.getElementById('logEntries');
+
+        function updateConnection(connected) {
+            statusDot.className = connected ? 'dot connected' : 'dot';
+            statusText.textContent = connected ? 'Connected to WebSocket server' : 'Disconnected, retrying...';
+        }
+
+        function addLog(topic, payload) {
+            const now = new Date().toLocaleTimeString();
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.innerHTML = `
+                <div class="log-topic">${topic}</div>
+                <div class="log-payload">${payload}</div>
+                <div class="log-time">${now}</div>
+            `;
+
+            if (logEntries.firstChild) {
+                logEntries.insertBefore(item, logEntries.firstChild);
+            } else {
+                logEntries.appendChild(item);
+            }
+
+            while (logEntries.children.length > 6) {
+                logEntries.removeChild(logEntries.lastChild);
+            }
+        }
+
+        socket.on('connect', () => updateConnection(true));
+        socket.on('disconnect', () => updateConnection(false));
+
+        socket.on('mqttUpdate', ({ topic, payload }) => {
+            if (topic === 'pillow/bpm') {
+                bpmValue.textContent = payload;
+                bpmLabel.textContent = payload > 0 ? 'Live BPM' : 'No signal';
+                bpmValue.style.color = payload > 110 || (payload < 65 && payload > 0) ? '#fbbf24' : '#f87171';
+            }
+            if (topic === 'pillow/head') {
+                headValue.textContent = payload;
+                headValue.style.color = payload === 'ON' ? '#34d399' : '#f87171';
+            }
+            addLog(topic, payload);
+        });
+    </script>
+</body>
+</html>
