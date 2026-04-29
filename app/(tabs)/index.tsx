@@ -14,6 +14,7 @@ import { LineChart } from 'react-native-chart-kit';
 import Slider from '@react-native-community/slider';
 import * as Haptics from 'expo-haptics';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 
 const { width } = Dimensions.get('window');
 
@@ -37,6 +38,8 @@ export default function DashboardScreen() {
   const [volume, setVolume] = useState(0.7);
   const [isAlertOn, setIsAlertOn] = useState(false);
   const [bluetoothDevice, setBluetoothDevice] = useState<string | null>(null);
+  const [emergencyActive, setEmergencyActive] = useState(false);
+  const [countdown, setCountdown] = useState(3);
   const [bpmHistory, setBpmHistory] = useState([65, 68, 72, 70, 75, 72, 74]);
   
   // --- ANIMATION ---
@@ -83,18 +86,46 @@ export default function DashboardScreen() {
     return () => client.end();
     */
     
-    // Mocking BPM changes
+    // Mocking a specific sequence for testing: 60 -> 70 -> 35 (Emergency)
+    let step = 0;
+    const testSequence = [60, 70, 75, 80 , 81, 82, 35, 72, 68]; // 35 will trigger the call
+    
     const interval = setInterval(() => {
       setBpm(prev => {
-        const next = prev + Math.floor(Math.random() * 5) - 2;
-        const bounded = Math.max(60, Math.min(100, next));
-        setBpmHistory(h => [...h.slice(1), bounded]);
-        return bounded;
+        const value = testSequence[step % testSequence.length];
+        step++;
+        
+        setBpmHistory(h => [...h.slice(1), value]);
+        return value;
       });
-    }, 2000);
+    }, 3000); // 3 seconds per step so you can see it clearly
 
     return () => clearInterval(interval);
   }, []);
+
+  // --- EMERGENCY TRIGGER ---
+  useEffect(() => {
+    if ((bpm < 40 || bpm > 130) && !emergencyActive) {
+      setEmergencyActive(true);
+      setCountdown(3);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [bpm]);
+
+  // --- COUNTDOWN LOGIC ---
+  useEffect(() => {
+    let timer: any;
+    if (emergencyActive && countdown > 0) {
+      timer = setTimeout(() => {
+        setCountdown(prev => prev - 1);
+      }, 1000);
+    } else if (emergencyActive && countdown === 0) {
+      Linking.openURL('tel:1234567890');
+      // Reset after calling to prevent infinite loop
+      setEmergencyActive(false);
+    }
+    return () => clearTimeout(timer);
+  }, [emergencyActive, countdown]);
 
   // --- HAPTIC HANDLERS ---
   const triggerHaptic = (type: string) => {
@@ -295,6 +326,25 @@ export default function DashboardScreen() {
         </View>
 
       </ScrollView>
+
+      {/* EMERGENCY OVERLAY */}
+      {emergencyActive && (
+        <View style={styles.emergencyOverlay}>
+          <MaterialCommunityIcons name="alert-octagon" size={80} color="#FF3B30" />
+          <Text style={styles.emergencyTitle}>CRITICAL BPM DETECTED</Text>
+          <Text style={styles.emergencyValue}>{bpm} BPM</Text>
+          <View style={styles.countdownCircle}>
+            <Text style={styles.countdownNumber}>{countdown}</Text>
+          </View>
+          <Text style={styles.emergencySub}>Calling Ambulance Automatically</Text>
+          <TouchableOpacity 
+            style={styles.cancelButton}
+            onPress={() => setEmergencyActive(false)}
+          >
+            <Text style={styles.cancelButtonText}>CANCEL EMERGENCY</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -511,5 +561,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 6,
+  },
+  emergencyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(18, 18, 18, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+    zIndex: 1000,
+  },
+  emergencyTitle: {
+    color: '#FF3B30',
+    fontSize: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  emergencyValue: {
+    color: '#FFF',
+    fontSize: 72,
+    fontWeight: '900',
+    marginVertical: 10,
+  },
+  emergencySub: {
+    color: '#A0A0A0',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 40,
+  },
+  cancelButton: {
+    backgroundColor: '#333',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  cancelButtonText: {
+    color: '#FF3B30',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  countdownCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  countdownNumber: {
+    color: '#FFF',
+    fontSize: 48,
+    fontWeight: '900',
   },
 });
