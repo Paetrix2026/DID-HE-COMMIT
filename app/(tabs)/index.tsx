@@ -42,6 +42,9 @@ export default function DashboardScreen() {
   const [emergencyActive, setEmergencyActive] = useState(false);
   const [emergencyBpm, setEmergencyBpm] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(3);
+  const [demoPhase, setDemoPhase] = useState<'awake' | 'light' | 'deep' | 'emergency'>('awake');
+  const [musicSound, setMusicSound] = useState<Audio.Sound | null>(null);
+  const [musicVolume, setMusicVolume] = useState(1.0);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [bpmHistory, setBpmHistory] = useState([65, 68, 72, 70, 75, 72, 74]);
   
@@ -89,26 +92,35 @@ export default function DashboardScreen() {
     return () => client.end();
     */
     
-    // Mocking a specific sequence for testing: 60 -> 70 -> 35 (Emergency)
-    let step = 0;
-    const testSequence = [60, 70, 75, 80 , 81, 82, 35, 72, 68]; // 35 will trigger the call and alarm
-    
+    // Improved Phase-based Simulation
     const interval = setInterval(() => {
       setBpm(prev => {
-        const value = testSequence[step % testSequence.length];
-        step++;
+        let newBpm = prev;
         
-        setBpmHistory(h => [...h.slice(1), value]);
-        
-        // --- SAVE TO TIMESCALEDB ---
-        sendVitalsToDb(value);
+        // Phase logic
+        switch (demoPhase) {
+          case 'awake':
+            newBpm = 60 + Math.floor(Math.random() * 41); // 60-100
+            break;
+          case 'light':
+            newBpm = 50 + Math.floor(Math.random() * 21); // 50-70
+            break;
+          case 'deep':
+            newBpm = 40 + Math.floor(Math.random() * 21);  // 40-60
+            break;
+          case 'emergency':
+            newBpm = 35; // Trigger alarm
+            break;
+        }
 
-        return value;
+        setBpmHistory(h => [...h.slice(1), newBpm]);
+        sendVitalsToDb(newBpm);
+        return newBpm;
       });
-    }, 3000); 
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [demoPhase]);
 
   // --- EMERGENCY TRIGGER ---
   useEffect(() => {
@@ -162,8 +174,47 @@ export default function DashboardScreen() {
     }
     setEmergencyActive(false);
     setEmergencyBpm(null);
-    setCountdown(3); // Reset countdown for next time
+    setCountdown(3); 
+    setDemoPhase('awake'); // Reset to awake after emergency
   };
+
+  // --- MUSIC LOAD & CONTROL ---
+  useEffect(() => {
+    async function loadMusic() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          require('@/assets/sounds/Dustin O\'Halloran - Opus 23.mp3'),
+          { shouldPlay: true, isLooping: true, volume: 0 }
+        );
+        setMusicSound(sound);
+      } catch (error) {
+        console.warn("Could not load sleep music:", error);
+      }
+    }
+    loadMusic();
+    
+    return () => {
+      if (musicSound) {
+        musicSound.unloadAsync();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (musicSound) {
+      const fadeMusic = async () => {
+        let targetVolume = 0;
+        if (demoPhase === 'light') targetVolume = 0.6; // Fade in to 60%
+        if (demoPhase === 'deep') targetVolume = 0;    // Fade out to 0%
+        if (demoPhase === 'awake' || demoPhase === 'emergency') targetVolume = 0;
+
+        // Simple fade simulation
+        await musicSound.setVolumeAsync(targetVolume);
+        setMusicVolume(targetVolume);
+      };
+      fadeMusic();
+    }
+  }, [demoPhase, musicSound]);
 
   useEffect(() => {
     return sound
@@ -234,7 +285,7 @@ export default function DashboardScreen() {
         {/* HEADER */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>Vibillow IoT</Text>
+            <Text style={styles.title}>Vibillow</Text>
             <Text style={styles.subtitle}>Health Monitoring System</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: status === 'Online' ? COLORS.success + '20' : COLORS.accent + '20' }]}>
@@ -389,9 +440,46 @@ export default function DashboardScreen() {
           <Text style={styles.aiDescription}>
             Vitals are stable. Pattern suggests a deep state of relaxation.
           </Text>
-        </View>
+          </View>
 
-      </ScrollView>
+          {/* --- DEMO CONTROL CENTER --- */}
+          <View style={styles.demoSection}>
+            <Text style={styles.demoTitle}>DEMO CONTROLS</Text>
+            <View style={styles.demoGrid}>
+              <TouchableOpacity 
+                style={[styles.demoBtn, demoPhase === 'awake' && styles.demoBtnActive]} 
+                onPress={() => setDemoPhase('awake')}
+              >
+                <Ionicons name="sunny" size={20} color={demoPhase === 'awake' ? "#FFF" : "#00D1FF"} />
+                <Text style={[styles.demoBtnText, demoPhase === 'awake' && styles.demoBtnTextActive]}>Awake</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.demoBtn, demoPhase === 'light' && styles.demoBtnActive]} 
+                onPress={() => setDemoPhase('light')}
+              >
+                <Ionicons name="moon-outline" size={20} color={demoPhase === 'light' ? "#FFF" : "#00D1FF"} />
+                <Text style={[styles.demoBtnText, demoPhase === 'light' && styles.demoBtnTextActive]}>Light Sleep</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.demoBtn, demoPhase === 'deep' && styles.demoBtnActive]} 
+                onPress={() => setDemoPhase('deep')}
+              >
+                <Ionicons name="moon" size={20} color={demoPhase === 'deep' ? "#FFF" : "#00D1FF"} />
+                <Text style={[styles.demoBtnText, demoPhase === 'deep' && styles.demoBtnTextActive]}>Deep Sleep</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.demoBtn, { borderColor: '#FF3B30' }, demoPhase === 'emergency' && { backgroundColor: '#FF3B30' }]} 
+                onPress={() => setDemoPhase('emergency')}
+              >
+                <Ionicons name="alert-circle" size={20} color={demoPhase === 'emergency' ? "#FFF" : "#FF3B30"} />
+                <Text style={[styles.demoBtnText, demoPhase === 'emergency' && { color: '#FFF' }]}>Emergency</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
 
       {/* EMERGENCY OVERLAY */}
       {emergencyActive && (
@@ -643,6 +731,51 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginLeft: 6,
+  },
+  // --- DEMO STYLES ---
+  demoSection: {
+    padding: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 24,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 209, 255, 0.1)',
+  },
+  demoTitle: {
+    color: '#00D1FF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  demoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+  },
+  demoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#00D1FF',
+    minWidth: '45%',
+    gap: 8,
+  },
+  demoBtnActive: {
+    backgroundColor: '#00D1FF',
+  },
+  demoBtnText: {
+    color: '#00D1FF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  demoBtnTextActive: {
+    color: '#FFF',
   },
   emergencyOverlay: {
     ...StyleSheet.absoluteFillObject,
