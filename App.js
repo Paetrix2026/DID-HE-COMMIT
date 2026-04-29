@@ -14,6 +14,7 @@ import { LineChart } from 'react-native-chart-kit';
 import Slider from '@react-native-community/slider';
 import * as Haptics from 'expo-haptics';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import mqtt from 'mqtt';
 
 const { width } = Dimensions.get('window');
 
@@ -29,14 +30,13 @@ const COLORS = {
   warning: '#FFCC00',
 };
 
-export default function DashboardScreen() {
+export default function App() {
   // --- STATE ---
   const [bpm, setBpm] = useState(72);
   const [status, setStatus] = useState('Online');
   const [hapticIntensity, setHapticIntensity] = useState(0.5);
   const [volume, setVolume] = useState(0.7);
   const [isAlertOn, setIsAlertOn] = useState(false);
-  const [bluetoothDevice, setBluetoothDevice] = useState<string | null>(null);
   const [bpmHistory, setBpmHistory] = useState([65, 68, 72, 70, 75, 72, 74]);
   
   // --- ANIMATION ---
@@ -61,10 +61,9 @@ export default function DashboardScreen() {
     pulse();
   }, []);
 
-  // --- MQTT BOILERPLATE (Commented out for mock) ---
+  // --- MQTT BOILERPLATE ---
   useEffect(() => {
     /* 
-    import mqtt from 'mqtt';
     const client = mqtt.connect('mqtt://broker.hivemq.com:1883');
     
     client.on('connect', () => {
@@ -82,22 +81,10 @@ export default function DashboardScreen() {
 
     return () => client.end();
     */
-    
-    // Mocking BPM changes
-    const interval = setInterval(() => {
-      setBpm(prev => {
-        const next = prev + Math.floor(Math.random() * 5) - 2;
-        const bounded = Math.max(60, Math.min(100, next));
-        setBpmHistory(h => [...h.slice(1), bounded]);
-        return bounded;
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
   }, []);
 
   // --- HAPTIC HANDLERS ---
-  const triggerHaptic = (type: string) => {
+  const triggerHaptic = (type) => {
     switch (type) {
       case 'Calm':
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -110,22 +97,6 @@ export default function DashboardScreen() {
         break;
       default:
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-  };
-
-  // --- BLUETOOTH HANDLER ---
-  const handleBluetoothConnect = () => {
-    if (bluetoothDevice) {
-      setBluetoothDevice(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else {
-      // Mock scanning/connecting process
-      setStatus('Connecting Bluetooth...');
-      setTimeout(() => {
-        setBluetoothDevice('Vibillow-Speaker-X1');
-        setStatus('Online');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }, 1500);
     }
   };
 
@@ -226,36 +197,14 @@ export default function DashboardScreen() {
         <View style={styles.card}>
           <View style={styles.row}>
             <Text style={styles.cardTitle}>Speaker System</Text>
-            <View style={styles.bluetoothBadge}>
-              <Ionicons name="bluetooth" size={14} color={COLORS.primary} />
-              <Text style={styles.bluetoothText}>{bluetoothDevice || 'Not Connected'}</Text>
-            </View>
-          </View>
-          
-          <View style={styles.bluetoothActionRow}>
             <TouchableOpacity 
               onPress={() => setIsAlertOn(!isAlertOn)}
-              style={[styles.toggleButton, { backgroundColor: isAlertOn ? COLORS.accent : '#333', flex: 0.45 }]}
+              style={[styles.toggleButton, { backgroundColor: isAlertOn ? COLORS.accent : '#333' }]}
             >
               <Ionicons name={isAlertOn ? "volume-high" : "volume-mute"} size={20} color="#FFF" />
               <Text style={styles.toggleText}>{isAlertOn ? 'Alert On' : 'Alert Off'}</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity 
-              onPress={handleBluetoothConnect}
-              style={[styles.bluetoothButton, { backgroundColor: bluetoothDevice ? COLORS.primary + '20' : '#333', flex: 0.5 }]}
-            >
-              <MaterialCommunityIcons 
-                name={bluetoothDevice ? "bluetooth-connect" : "bluetooth-audio"} 
-                size={20} 
-                color={bluetoothDevice ? COLORS.primary : "#FFF"} 
-              />
-              <Text style={[styles.bluetoothBtnText, { color: bluetoothDevice ? COLORS.primary : "#FFF" }]}>
-                {bluetoothDevice ? 'Connected' : 'Pair Speaker'}
-              </Text>
-            </TouchableOpacity>
           </View>
-
           <View style={styles.sliderContainer}>
             <View style={styles.sliderLabelRow}>
               <Text style={styles.label}>Volume</Text>
@@ -275,7 +224,7 @@ export default function DashboardScreen() {
         </View>
 
         {/* AI ANALYSIS SECTION */}
-        <View style={[styles.card, { borderColor: COLORS.primary + '40', borderWidth: 1, marginBottom: 40 }]}>
+        <View style={[styles.card, { borderColor: COLORS.primary + '40', borderWidth: 1 }]}>
           <View style={styles.row}>
             <View style={styles.aiHeader}>
               <MaterialCommunityIcons name="brain" size={24} color={COLORS.primary} />
@@ -480,36 +429,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     marginTop: 8,
-  },
-  bluetoothBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#2A2A2A',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  bluetoothText: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    marginLeft: 4,
-  },
-  bluetoothActionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 15,
-  },
-  bluetoothButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  bluetoothBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 6,
   },
 });
