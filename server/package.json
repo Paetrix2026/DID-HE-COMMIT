@@ -1,0 +1,28 @@
+{
+  "name": "hivemq-webserver",
+  "version": "1.0.0",
+  "description": "Webserver that displays live HiveMQ data using Socket.IO",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "mqtt",
+    "hivemq",
+    "socket.io",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^4.18.2",
+    "mqtt": "^5.15.1",
+    "pg": "^8.20.0",
+    "socket.io": "^4.5.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

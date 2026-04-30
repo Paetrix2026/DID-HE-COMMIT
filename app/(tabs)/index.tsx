@@ -1,23 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
+import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Dimensions,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
-  View,
-  ScrollView,
   TouchableOpacity,
-  Dimensions,
-  Animated,
-  SafeAreaView,
-  StatusBar,
+  View,
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
-import Slider from '@react-native-community/slider';
-import * as Haptics from 'expo-haptics';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
-import { Audio } from 'expo-av';
 
 const { width } = Dimensions.get('window');
+const DISCORD_WEBHOOK_URL = 'https://discordapp.com/api/webhooks/1499129129516138589/i-lpHQinCA_gL6_Z8EEXNgbx5gdmAAAqdICE8L4ApuQzxcF44AnpXK40aD3I7YPaPXyr';
 
 // --- THEME ---
 const COLORS = {
@@ -47,7 +47,7 @@ export default function DashboardScreen() {
   const [musicVolume, setMusicVolume] = useState(1.0);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [bpmHistory, setBpmHistory] = useState([65, 68, 72, 70, 75, 72, 74]);
-  
+
   // --- ANIMATION ---
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -91,33 +91,43 @@ export default function DashboardScreen() {
 
     return () => client.end();
     */
-    
-    // Improved Phase-based Simulation
-    const interval = setInterval(() => {
+
+    // Real-time BPM Fetching from Database
+    const interval = setInterval(async () => {
+      if (demoPhase === 'awake' || demoPhase === 'light' || demoPhase === 'deep' || demoPhase === 'emergency') {
+        try {
+          const response = await fetch('http://172.25.3.103:3000/api/vitals/latest');
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.bpm !== undefined) {
+              setBpm(data.bpm);
+              setBpmHistory(h => [...h.slice(1), data.bpm]);
+              return; 
+            }
+          }
+        } catch (err) {
+          // Fallback to simulation if server is unreachable
+        }
+      }
+
+      // Fallback Simulation (Used for Demo Controls)
       setBpm(prev => {
         let newBpm = prev;
-        
-        // Phase logic
         switch (demoPhase) {
-          case 'awake':
-            newBpm = 60 + Math.floor(Math.random() * 41); // 60-100
-            break;
-          case 'light':
-            newBpm = 50 + Math.floor(Math.random() * 21); // 50-70
-            break;
-          case 'deep':
-            newBpm = 40 + Math.floor(Math.random() * 21);  // 40-60
-            break;
-          case 'emergency':
-            newBpm = 35; // Trigger alarm
-            break;
+          case 'awake': newBpm = 60 + Math.floor(Math.random() * 41); break;
+          case 'light': newBpm = 50 + Math.floor(Math.random() * 21); break;
+          case 'deep': newBpm = 40 + Math.floor(Math.random() * 21); break;
+          case 'emergency': newBpm = 35; break;
         }
 
+        // Push simulated data to DB so AI can "see" the demo
+        sendVitalsToDb(newBpm); 
+
         setBpmHistory(h => [...h.slice(1), newBpm]);
-        sendVitalsToDb(newBpm);
         return newBpm;
       });
-    }, 3000);
+    }, 5000); // Poll every 5s to match AI Engine
+
 
     return () => clearInterval(interval);
   }, [demoPhase]);
@@ -128,6 +138,7 @@ export default function DashboardScreen() {
       setEmergencyActive(true);
       setEmergencyBpm(bpm);
       setCountdown(3);
+      sendDiscordAlert(bpm); // <--- Trigger Discord Alert
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }, [bpm]);
@@ -174,8 +185,23 @@ export default function DashboardScreen() {
     }
     setEmergencyActive(false);
     setEmergencyBpm(null);
-    setCountdown(3); 
+    setCountdown(3);
     setDemoPhase('awake'); // Reset to awake after emergency
+  };
+
+  const sendDiscordAlert = async (criticalBpm: number) => {
+    try {
+      await fetch(DISCORD_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: `🚨 **VIBILLOW EMERGENCY ALERT** 🚨\n@everyone \n\n**Critical Health Status Detected!**\nHeart Rate: **${criticalBpm} BPM**\nDevice: **Vibillow-IoT-01**\n\n*Immediate medical attention may be required.*`
+        }),
+      });
+      console.log("Discord Alert Sent Successfully");
+    } catch (error) {
+      console.error("Failed to send Discord alert:", error);
+    }
   };
 
   // --- MUSIC LOAD & CONTROL ---
@@ -192,7 +218,7 @@ export default function DashboardScreen() {
       }
     }
     loadMusic();
-    
+
     return () => {
       if (musicSound) {
         musicSound.unloadAsync();
@@ -219,8 +245,8 @@ export default function DashboardScreen() {
   useEffect(() => {
     return sound
       ? () => {
-          sound.unloadAsync();
-        }
+        sound.unloadAsync();
+      }
       : undefined;
   }, [sound]);
 
@@ -240,6 +266,32 @@ export default function DashboardScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
+
+  const [aiStatus, setAiStatus] = useState({ 
+    status: 'Analyzing...', 
+    confidence: '0%', 
+    apnea_risk: 'Low',
+    hrv: 0,
+    rmssd: 0,
+    samples: 0,
+    reasoning: 'Initializing ML pipeline...'
+  });
+
+  // --- AI ANALYSIS FETCH ---
+  useEffect(() => {
+    const aiInterval = setInterval(async () => {
+      try {
+        const response = await fetch('http://172.25.3.103:3000/api/ai/sleep-status');
+        if (response.ok) {
+          const data = await response.json();
+          setAiStatus(data);
+        }
+      } catch (err) {
+        console.warn('AI Fetch Error:', err);
+      }
+    }, 5000); // Fetch every 5s to match server pulse
+    return () => clearInterval(aiInterval);
+  }, []);
 
   // --- DATABASE SYNC ---
   const sendVitalsToDb = async (currentBpm: number) => {
@@ -281,7 +333,7 @@ export default function DashboardScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        
+
         {/* HEADER */}
         <View style={styles.header}>
           <View>
@@ -308,7 +360,7 @@ export default function DashboardScreen() {
             <Text style={styles.bpmValue}>{bpm}</Text>
             <Text style={styles.bpmUnit}>BPM</Text>
           </View>
-          
+
           {/* VISUALIZATION */}
           <View style={styles.chartContainer}>
             <LineChart
@@ -379,9 +431,9 @@ export default function DashboardScreen() {
               <Text style={styles.bluetoothText}>{bluetoothDevice || 'Not Connected'}</Text>
             </View>
           </View>
-          
+
           <View style={styles.bluetoothActionRow}>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => setIsAlertOn(!isAlertOn)}
               style={[styles.toggleButton, { backgroundColor: isAlertOn ? COLORS.accent : '#333', flex: 0.45 }]}
             >
@@ -389,14 +441,14 @@ export default function DashboardScreen() {
               <Text style={styles.toggleText}>{isAlertOn ? 'Alert On' : 'Alert Off'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleBluetoothConnect}
               style={[styles.bluetoothButton, { backgroundColor: bluetoothDevice ? COLORS.primary + '20' : '#333', flex: 0.5 }]}
             >
-              <MaterialCommunityIcons 
-                name={bluetoothDevice ? "bluetooth-connect" : "bluetooth-audio"} 
-                size={20} 
-                color={bluetoothDevice ? COLORS.primary : "#FFF"} 
+              <MaterialCommunityIcons
+                name={bluetoothDevice ? "bluetooth-connect" : "bluetooth-audio"}
+                size={20}
+                color={bluetoothDevice ? COLORS.primary : "#FFF"}
               />
               <Text style={[styles.bluetoothBtnText, { color: bluetoothDevice ? COLORS.primary : "#FFF" }]}>
                 {bluetoothDevice ? 'Connected' : 'Pair Speaker'}
@@ -426,60 +478,95 @@ export default function DashboardScreen() {
         <View style={[styles.card, { borderColor: COLORS.primary + '40', borderWidth: 1, marginBottom: 40 }]}>
           <View style={styles.row}>
             <View style={styles.aiHeader}>
-              <MaterialCommunityIcons name="brain" size={24} color={COLORS.primary} />
+              <MaterialCommunityIcons 
+                name={aiStatus.status.includes('Sleep') ? "moon-waning-crescent" : "brain"} 
+                size={24} 
+                color={COLORS.primary} 
+              />
               <Text style={[styles.cardTitle, { marginLeft: 8 }]}>AI Analysis</Text>
             </View>
             <View style={styles.confidenceBadge}>
-              <Text style={styles.confidenceText}>94% Confidence</Text>
+              <Text style={styles.confidenceText}>{aiStatus.confidence} Confidence</Text>
             </View>
           </View>
           <View style={styles.aiResult}>
-            <Text style={styles.aiStatusLabel}>Status:</Text>
-            <Text style={styles.aiStatusValue}>Relaxed</Text>
+            <Text style={styles.aiStatusLabel}>Sleep Stage:</Text>
+            <Text style={[styles.aiStatusValue, { color: aiStatus.status === 'Deep Sleep' ? COLORS.primary : COLORS.success }]}>
+              {aiStatus.status}
+            </Text>
+          </View>
+          <View style={[styles.aiResult, { marginTop: 8 }]}>
+            <Text style={styles.aiStatusLabel}>Apnea Risk:</Text>
+            <Text style={[
+              styles.aiStatusValue, 
+              { color: aiStatus.apnea_risk === 'High' ? COLORS.danger : aiStatus.apnea_risk === 'Moderate' ? COLORS.warning : COLORS.success }
+            ]}>
+              {aiStatus.apnea_risk}
+            </Text>
           </View>
           <Text style={styles.aiDescription}>
-            Vitals are stable. Pattern suggests a deep state of relaxation.
+            {aiStatus.reasoning}
           </Text>
-          </View>
 
-          {/* --- DEMO CONTROL CENTER --- */}
-          <View style={styles.demoSection}>
-            <Text style={styles.demoTitle}>DEMO CONTROLS</Text>
-            <View style={styles.demoGrid}>
-              <TouchableOpacity 
-                style={[styles.demoBtn, demoPhase === 'awake' && styles.demoBtnActive]} 
-                onPress={() => setDemoPhase('awake')}
-              >
-                <Ionicons name="sunny" size={20} color={demoPhase === 'awake' ? "#FFF" : "#00D1FF"} />
-                <Text style={[styles.demoBtnText, demoPhase === 'awake' && styles.demoBtnTextActive]}>Awake</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.demoBtn, demoPhase === 'light' && styles.demoBtnActive]} 
-                onPress={() => setDemoPhase('light')}
-              >
-                <Ionicons name="moon-outline" size={20} color={demoPhase === 'light' ? "#FFF" : "#00D1FF"} />
-                <Text style={[styles.demoBtnText, demoPhase === 'light' && styles.demoBtnTextActive]}>Light Sleep</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.demoBtn, demoPhase === 'deep' && styles.demoBtnActive]} 
-                onPress={() => setDemoPhase('deep')}
-              >
-                <Ionicons name="moon" size={20} color={demoPhase === 'deep' ? "#FFF" : "#00D1FF"} />
-                <Text style={[styles.demoBtnText, demoPhase === 'deep' && styles.demoBtnTextActive]}>Deep Sleep</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.demoBtn, { borderColor: '#FF3B30' }, demoPhase === 'emergency' && { backgroundColor: '#FF3B30' }]} 
-                onPress={() => setDemoPhase('emergency')}
-              >
-                <Ionicons name="alert-circle" size={20} color={demoPhase === 'emergency' ? "#FFF" : "#FF3B30"} />
-                <Text style={[styles.demoBtnText, demoPhase === 'emergency' && { color: '#FFF' }]}>Emergency</Text>
-              </TouchableOpacity>
+          {/* NEW: LIVE MODEL TELEMETRY */}
+          <View style={styles.telemetryContainer}>
+            <Text style={styles.telemetryTitle}>MODEL INSIGHTS (LIVE)</Text>
+            <View style={styles.telemetryGrid}>
+              <View style={styles.telemetryItem}>
+                <Text style={styles.telemetryLabel}>HRV (σ)</Text>
+                <Text style={styles.telemetryValue}>{aiStatus.hrv}</Text>
+              </View>
+              <View style={styles.telemetryItem}>
+                <Text style={styles.telemetryLabel}>RMSSD</Text>
+                <Text style={styles.telemetryValue}>{aiStatus.rmssd}ms</Text>
+              </View>
+              <View style={styles.telemetryItem}>
+                <Text style={styles.telemetryLabel}>WINDOW</Text>
+                <Text style={styles.telemetryValue}>{aiStatus.samples} pts</Text>
+              </View>
             </View>
           </View>
-        </ScrollView>
+        </View>
+
+
+        {/* --- DEMO CONTROL CENTER --- */}
+        <View style={styles.demoSection}>
+          <Text style={styles.demoTitle}>DEMO CONTROLS</Text>
+          <View style={styles.demoGrid}>
+            <TouchableOpacity
+              style={[styles.demoBtn, demoPhase === 'awake' && styles.demoBtnActive]}
+              onPress={() => setDemoPhase('awake')}
+            >
+              <Ionicons name="sunny" size={20} color={demoPhase === 'awake' ? "#FFF" : "#00D1FF"} />
+              <Text style={[styles.demoBtnText, demoPhase === 'awake' && styles.demoBtnTextActive]}>Awake</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.demoBtn, demoPhase === 'light' && styles.demoBtnActive]}
+              onPress={() => setDemoPhase('light')}
+            >
+              <Ionicons name="moon-outline" size={20} color={demoPhase === 'light' ? "#FFF" : "#00D1FF"} />
+              <Text style={[styles.demoBtnText, demoPhase === 'light' && styles.demoBtnTextActive]}>Light Sleep</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.demoBtn, demoPhase === 'deep' && styles.demoBtnActive]}
+              onPress={() => setDemoPhase('deep')}
+            >
+              <Ionicons name="moon" size={20} color={demoPhase === 'deep' ? "#FFF" : "#00D1FF"} />
+              <Text style={[styles.demoBtnText, demoPhase === 'deep' && styles.demoBtnTextActive]}>Deep Sleep</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.demoBtn, { borderColor: '#FF3B30' }, demoPhase === 'emergency' && { backgroundColor: '#FF3B30' }]}
+              onPress={() => setDemoPhase('emergency')}
+            >
+              <Ionicons name="alert-circle" size={20} color={demoPhase === 'emergency' ? "#FFF" : "#FF3B30"} />
+              <Text style={[styles.demoBtnText, demoPhase === 'emergency' && { color: '#FFF' }]}>Emergency</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
 
       {/* EMERGENCY OVERLAY */}
       {emergencyActive && (
@@ -493,18 +580,18 @@ export default function DashboardScreen() {
           <Text style={styles.emergencySub}>
             {countdown === 0 ? 'Emergency Services Notified' : ''}
           </Text>
-          
+
           <View style={styles.emergencyActionRow}>
             {countdown === 0 && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.cancelButton, { backgroundColor: '#FF3B30', borderColor: '#FF3B30', marginRight: 10 }]}
                 onPress={stopAlert}
               >
                 <Text style={[styles.cancelButtonText, { color: '#FFF' }]}>STOP ALERT</Text>
               </TouchableOpacity>
             )}
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.cancelButton}
               onPress={stopAlert}
             >
@@ -697,9 +784,42 @@ const styles = StyleSheet.create({
   },
   aiDescription: {
     color: COLORS.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 15,
+  },
+  telemetryContainer: {
+    backgroundColor: '#000000',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 0.5,
+    borderColor: COLORS.primary + '20',
+  },
+  telemetryTitle: {
+    color: COLORS.primary,
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  telemetryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  telemetryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  telemetryLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 9,
+    marginBottom: 2,
+  },
+  telemetryValue: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: 'monospace',
   },
   bluetoothBadge: {
     flexDirection: 'row',
