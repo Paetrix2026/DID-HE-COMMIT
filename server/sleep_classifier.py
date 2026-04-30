@@ -5,13 +5,8 @@ import numpy as np
 
 def get_db_data():
     try:
-        conn = psycopg2.connect(
-            dbname="mydb",
-            user="postgres",
-            password="ashwil123",
-            host="localhost",
-            port="5432"
-        )
+        # Connect to Supabase Cloud Database
+        conn = psycopg2.connect("postgresql://postgres:[Vibillow@123]@db.nvxzstfhpxoolblbhyiv.supabase.co:5432/postgres")
         cur = conn.cursor()
         # Fetch last 20 BPM readings
         cur.execute("SELECT bpm FROM vitals ORDER BY time DESC LIMIT 20")

@@ -11,13 +11,12 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
-// --- DATABASE SETUP ---
+// --- DATABASE CONFIG (Supabase Cloud) ---
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'mydb',
-    password: 'ashwil123',
-    port: 5432,
+    connectionString: "postgresql://postgres:[Vibillow@123]@db.nvxzstfhpxoolblbhyiv.supabase.co:5432/postgres",
+    ssl: {
+        rejectUnauthorized: false // Required for Supabase/Heroku/Render
+    }
 });
 
 app.use(cors());
