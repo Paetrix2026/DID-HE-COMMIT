@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+numpy
+pandas
+joblib
+psycopg2-binary
+scipy
+tensorboardX
