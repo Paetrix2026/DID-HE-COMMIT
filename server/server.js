@@ -84,9 +84,61 @@ app.get('/api/vitals/latest', async (req, res) => {
     }
 });
 
+// --- NEW: FASTAPI ML INTEGRATION ---
+let cachedAiStatus = { 
+    status: 'Analyzing...', 
+    confidence: '0%', 
+    apnea_risk: 'Low',
+    reasoning: 'ML Service Initializing...' 
+};
+
+const runAiClassification = async () => {
+    try {
+        // 1. Get latest 20 readings for the ML model
+        const result = await pool.query('SELECT bpm FROM vitals ORDER BY time DESC LIMIT 20');
+        const bpms = result.rows.map(r => r.bpm);
+
+        if (bpms.length < 5) return;
+
+        // 2. Call our high-performance FastAPI ML server
+        const response = await fetch('http://localhost:8000/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bpms })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            cachedAiStatus = {
+                status: data.status,
+                confidence: data.confidence,
+                apnea_risk: data.apnea_risk,
+                hrv: data.features.Std_Dev_Amp.toFixed(2),
+                rmssd: data.features.RMSSD.toFixed(2),
+                samples: bpms.length,
+                reasoning: `Inference: Mean HR ${data.features.Mean_Amp.toFixed(1)}, Zero Crossings ${data.features.Zero_Crossings}`
+            };
+            console.log(`[ML SERVICE] Prediction: ${data.apnea_risk} Risk`);
+        }
+
+    } catch (err) {
+        console.error(`[ML ERROR] Connection failed: ${err.message}`);
+    }
+};
+
+// Run AI analysis every 5 seconds
+setInterval(runAiClassification, 5000);
+runAiClassification();
+
+
+app.get('/api/ai/sleep-status', (req, res) => {
+    res.json(cachedAiStatus);
+});
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
+
 
 server.listen(PORT, () => console.log(`Web Dashboard at http://localhost:${PORT}`));
 

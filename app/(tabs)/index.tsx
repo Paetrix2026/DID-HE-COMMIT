@@ -110,7 +110,7 @@ export default function DashboardScreen() {
         }
       }
 
-      // Fallback Simulation
+      // Fallback Simulation (Used for Demo Controls)
       setBpm(prev => {
         let newBpm = prev;
         switch (demoPhase) {
@@ -119,10 +119,14 @@ export default function DashboardScreen() {
           case 'deep': newBpm = 40 + Math.floor(Math.random() * 21); break;
           case 'emergency': newBpm = 35; break;
         }
+
+        // Push simulated data to DB so AI can "see" the demo
+        sendVitalsToDb(newBpm); 
+
         setBpmHistory(h => [...h.slice(1), newBpm]);
         return newBpm;
       });
-    }, 3000);
+    }, 5000); // Poll every 5s to match AI Engine
 
 
     return () => clearInterval(interval);
@@ -262,6 +266,32 @@ export default function DashboardScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
+
+  const [aiStatus, setAiStatus] = useState({ 
+    status: 'Analyzing...', 
+    confidence: '0%', 
+    apnea_risk: 'Low',
+    hrv: 0,
+    rmssd: 0,
+    samples: 0,
+    reasoning: 'Initializing ML pipeline...'
+  });
+
+  // --- AI ANALYSIS FETCH ---
+  useEffect(() => {
+    const aiInterval = setInterval(async () => {
+      try {
+        const response = await fetch('http://172.25.3.103:3000/api/ai/sleep-status');
+        if (response.ok) {
+          const data = await response.json();
+          setAiStatus(data);
+        }
+      } catch (err) {
+        console.warn('AI Fetch Error:', err);
+      }
+    }, 5000); // Fetch every 5s to match server pulse
+    return () => clearInterval(aiInterval);
+  }, []);
 
   // --- DATABASE SYNC ---
   const sendVitalsToDb = async (currentBpm: number) => {
@@ -448,21 +478,56 @@ export default function DashboardScreen() {
         <View style={[styles.card, { borderColor: COLORS.primary + '40', borderWidth: 1, marginBottom: 40 }]}>
           <View style={styles.row}>
             <View style={styles.aiHeader}>
-              <MaterialCommunityIcons name="brain" size={24} color={COLORS.primary} />
+              <MaterialCommunityIcons 
+                name={aiStatus.status.includes('Sleep') ? "moon-waning-crescent" : "brain"} 
+                size={24} 
+                color={COLORS.primary} 
+              />
               <Text style={[styles.cardTitle, { marginLeft: 8 }]}>AI Analysis</Text>
             </View>
             <View style={styles.confidenceBadge}>
-              <Text style={styles.confidenceText}>94% Confidence</Text>
+              <Text style={styles.confidenceText}>{aiStatus.confidence} Confidence</Text>
             </View>
           </View>
           <View style={styles.aiResult}>
-            <Text style={styles.aiStatusLabel}>Status:</Text>
-            <Text style={styles.aiStatusValue}>Relaxed</Text>
+            <Text style={styles.aiStatusLabel}>Sleep Stage:</Text>
+            <Text style={[styles.aiStatusValue, { color: aiStatus.status === 'Deep Sleep' ? COLORS.primary : COLORS.success }]}>
+              {aiStatus.status}
+            </Text>
+          </View>
+          <View style={[styles.aiResult, { marginTop: 8 }]}>
+            <Text style={styles.aiStatusLabel}>Apnea Risk:</Text>
+            <Text style={[
+              styles.aiStatusValue, 
+              { color: aiStatus.apnea_risk === 'High' ? COLORS.danger : aiStatus.apnea_risk === 'Moderate' ? COLORS.warning : COLORS.success }
+            ]}>
+              {aiStatus.apnea_risk}
+            </Text>
           </View>
           <Text style={styles.aiDescription}>
-            Vitals are stable. Pattern suggests a deep state of relaxation.
+            {aiStatus.reasoning}
           </Text>
+
+          {/* NEW: LIVE MODEL TELEMETRY */}
+          <View style={styles.telemetryContainer}>
+            <Text style={styles.telemetryTitle}>MODEL INSIGHTS (LIVE)</Text>
+            <View style={styles.telemetryGrid}>
+              <View style={styles.telemetryItem}>
+                <Text style={styles.telemetryLabel}>HRV (σ)</Text>
+                <Text style={styles.telemetryValue}>{aiStatus.hrv}</Text>
+              </View>
+              <View style={styles.telemetryItem}>
+                <Text style={styles.telemetryLabel}>RMSSD</Text>
+                <Text style={styles.telemetryValue}>{aiStatus.rmssd}ms</Text>
+              </View>
+              <View style={styles.telemetryItem}>
+                <Text style={styles.telemetryLabel}>WINDOW</Text>
+                <Text style={styles.telemetryValue}>{aiStatus.samples} pts</Text>
+              </View>
+            </View>
+          </View>
         </View>
+
 
         {/* --- DEMO CONTROL CENTER --- */}
         <View style={styles.demoSection}>
@@ -719,9 +784,42 @@ const styles = StyleSheet.create({
   },
   aiDescription: {
     color: COLORS.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 15,
+  },
+  telemetryContainer: {
+    backgroundColor: '#000000',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 0.5,
+    borderColor: COLORS.primary + '20',
+  },
+  telemetryTitle: {
+    color: COLORS.primary,
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  telemetryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  telemetryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  telemetryLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 9,
+    marginBottom: 2,
+  },
+  telemetryValue: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: 'monospace',
   },
   bluetoothBadge: {
     flexDirection: 'row',
